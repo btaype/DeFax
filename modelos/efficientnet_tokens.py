@@ -23,7 +23,7 @@ class EfficientNetTokens(nn.Module):
         tokens_eff = mapa.flatten(2).transpose(1, 2)
 
         if tokens_eff.dim() != 3 or tokens_eff.shape[-1] != self.extractor.ce:
-            raise ValueError(f"recibido: {tokens_eff.shape}")
+            raise ValueError(f"recibido efficient: {tokens_eff.shape}")
 
         if self.imprimir_shapes:
             print("efficient tokens:", tokens_eff.shape)
