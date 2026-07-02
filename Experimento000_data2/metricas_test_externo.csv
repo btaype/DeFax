@@ -1,0 +1,2 @@
+grupo,n_muestras,acc,f1,auc,tn,fp,fn,tp
+general,6768,0.49793144208037826,0.0,0.5,3370,0,3398,0

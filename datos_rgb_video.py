@@ -23,15 +23,42 @@ class VideoItem:
 
 def _imagenes_de_video(video_dir):
     return sorted(
-        p
-        for p in video_dir.rglob("*")
-        if p.is_file() and p.suffix.lower() in IMG_EXTS
+        (
+            p
+            for p in video_dir.rglob("*")
+            if p.is_file() and p.suffix.lower() in IMG_EXTS
+        ),
+        key=_clave_frame,
     )
 
 
 def _clave_video_id(video_id):
     partes = re.split(r"(\d+)", video_id)
     return tuple(int(parte) if parte.isdigit() else parte.lower() for parte in partes)
+
+
+def _clave_frame(path):
+    partes = re.split(r"(\d+)", path.stem)
+    return tuple(int(parte) if parte.isdigit() else parte.lower() for parte in partes)
+
+
+def _seleccionar_uniforme(imagenes, porcentaje_datos):
+    total = len(imagenes)
+    if total == 0:
+        return []
+
+    cantidad = max(1, round(total * porcentaje_datos / 100))
+    cantidad = min(cantidad, total)
+    if cantidad == total:
+        return imagenes
+    if cantidad == 1:
+        return [imagenes[0]]
+
+    indices = [
+        round(i * (total - 1) / (cantidad - 1))
+        for i in range(cantidad)
+    ]
+    return [imagenes[indice] for indice in indices]
 
 
 def _dividir_video_ids(video_ids, proporciones=(0.72, 0.14, 0.14)):
@@ -138,13 +165,15 @@ def build_transform(split):
 
 
 class SurFakeRGBVideoDataset(Dataset):
-    def __init__(self, videos, transform=None):
+    def __init__(self, videos, transform=None, porcentaje_datos=100, reducir=False):
         self.videos = list(videos)
         self.transform = transform
         self.samples = []
 
         for video in self.videos:
             imagenes = _imagenes_de_video(video.ruta)
+            if reducir:
+                imagenes = _seleccionar_uniforme(imagenes, porcentaje_datos)
             for img_path in imagenes:
                 self.samples.append(
                     {
@@ -205,10 +234,16 @@ def construir_dataloaders(
     num_workers=4,
     seed=42,
     balancear_train=True,
+    porcentaje_datos=100,
 ):
     splits_video = construir_splits_por_video(root_dir, seed=seed)
     datasets = {
-        split: SurFakeRGBVideoDataset(videos, transform=build_transform(split))
+        split: SurFakeRGBVideoDataset(
+            videos,
+            transform=build_transform(split),
+            porcentaje_datos=porcentaje_datos,
+            reducir=split == "train",
+        )
         for split, videos in splits_video.items()
     }
 

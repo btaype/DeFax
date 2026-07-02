@@ -24,7 +24,7 @@ from datos_rgb_video import construir_dataloaders, imprimir_resumen_splits
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Entrenamiento DeFaX RGB con split 72/14/14 por video."
+        description="Entrenamiento DeFaX"
     )
     parser.add_argument(
         "--data-root",
@@ -44,9 +44,26 @@ def parse_args():
     parser.add_argument("--efficient-modelo", default="efficientnet_b0")
     parser.add_argument("--no-pretrained", action="store_true")
     parser.add_argument("--sin-balanceo", action="store_true")
+    parser.add_argument(
+        "--porcentaje-datos",
+        type=float,
+        default=100,
+        help="Porcentaje de frames a usar por video solo en train.",
+    )
     parser.add_argument("--imprimir-shapes", action="store_true")
     parser.add_argument("--resume", default=None)
     parser.add_argument("--guardar-cada-epoca", action="store_true")
+    parser.add_argument(
+        "--carpeta-epocas",
+        default="epocas",
+        help="Subcarpeta dentro de --salida para guardar un .pth por epoca.",
+    )
+    parser.add_argument(
+        "--checkpoint-final",
+        choices=("best", "last"),
+        default="best",
+        help="Checkpoint usado para calcular las metricas finales de test.",
+    )
     return parser.parse_args()
 
 
@@ -240,6 +257,9 @@ def guardar_test_final(path, metricas):
 
 def main():
     args = parse_args()
+    if args.porcentaje_datos <= 0 or args.porcentaje_datos > 100:
+        raise ValueError("--porcentaje-datos debe estar en el rango (0, 100].")
+
     fijar_seed(args.seed)
 
     salida = Path(args.salida)
@@ -251,6 +271,7 @@ def main():
         num_workers=args.num_workers,
         seed=args.seed,
         balancear_train=not args.sin_balanceo,
+        porcentaje_datos=args.porcentaje_datos,
     )
     imprimir_resumen_splits(datasets, splits_video)
 
@@ -264,8 +285,8 @@ def main():
     except ModuleNotFoundError as exc:
         if exc.name == "timm":
             raise ModuleNotFoundError(
-                "Falta instalar timm. Instala las dependencias con: "
-                "pip install -r requirements.txt"
+                "Falta instalar timm "
+
             ) from exc
         raise
 
@@ -293,8 +314,12 @@ def main():
     inicio_epoch = 1
     best_path = salida / "best_defax.pth"
     last_path = salida / "last_defax.pth"
+    epocas_dir = salida / args.carpeta_epocas
     metricas_csv = salida / "metricas_por_epoca.csv"
     metricas_jsonl = salida / "metricas_por_epoca.jsonl"
+
+    if args.guardar_cada_epoca:
+        epocas_dir.mkdir(parents=True, exist_ok=True)
 
     if args.resume is not None:
         inicio_epoch, mejor_f1, sin_mejora = cargar_checkpoint(
@@ -362,7 +387,7 @@ def main():
         print(f"ultimo checkpoint guardado: {last_path}")
 
         if args.guardar_cada_epoca:
-            epoch_path = salida / f"epoch_{epoch:03d}.pth"
+            epoch_path = epocas_dir / f"epoch_{epoch:03d}.pth"
             guardar_checkpoint(
                 epoch_path,
                 modelo,
@@ -381,7 +406,9 @@ def main():
             print("early stopping activado")
             break
 
-    checkpoint = torch.load(best_path, map_location=device)
+    checkpoint_final_path = best_path if args.checkpoint_final == "best" else last_path
+    print(f"checkpoint final para test: {checkpoint_final_path}")
+    checkpoint = torch.load(checkpoint_final_path, map_location=device)
     modelo.load_state_dict(checkpoint["model_state"])
     test_metricas = evaluar(modelo, loaders["test"], criterio, device, "test")
     imprimir_metricas("test final", test_metricas)
